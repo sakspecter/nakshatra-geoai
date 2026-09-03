@@ -186,3 +186,5 @@ export interface ScenarioSimulation {
   rows: ScenarioSimRow[];
   baseline_untouched: boolean;
 }
+
+export type HazardType = 'flood' | 'drought' | 'landslide' | 'cyclone' | 'heatwave' | string;
