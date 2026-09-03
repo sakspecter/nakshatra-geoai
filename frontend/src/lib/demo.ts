@@ -161,7 +161,7 @@ export function demoMap(featureSource: "all-destinations" | "habitations" = "hab
 
   return {
     type: "FeatureCollection",
-    features: featureSource === "habitations" ? habitFeatures : destinationFeatures,
+    features: (featureSource === "habitations" ? habitFeatures : destinationFeatures) as any,
     meta: { count: habitFeatures.length + destinationFeatures.length, srs: 4326 },
   };
 }
