@@ -21,7 +21,7 @@ greenlet==3.1.1
 geopandas==1.0.1
 shapely==2.0.6
 rasterio==1.4.2
-pyproj==3.7.0
+pyproj==3.6.1
 
 # --- ML (used by later modules; pinned here for reproducibility) ---
 scikit-learn==1.6.0
