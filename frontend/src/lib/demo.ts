@@ -78,7 +78,7 @@ function aggregateState(districts: DistrictKpi[]): StatePgKpi[] {
   }
   return Object.values(map);
 }
-function aggregateTotals(districts: DistrictPgKpi[]): OverviewTotals {
+function aggregateTotals(districts: DistrictKpi[]): OverviewTotals {
   const red_zone_count = districts.reduce((a, d) => a + d.red_zone_count, 0);
   const yellow_zone_count = districts.reduce((a, d) => a + d.yellow_zone_count, 0);
   return {
