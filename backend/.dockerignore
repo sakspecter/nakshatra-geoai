@@ -1,0 +1,14 @@
+# Keep the build small and avoid shipping secrets into the image.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.git/
+.env
+.env.*
+!.env.example
+.cache/
+.pytest_cache/
+.venv/
+venv/
+tests/
+/app/__pycache__/

@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 24% 7%;
+    --foreground: 210 20% 96%;
+
+    --card: 222 26% 10%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 222 26% 9%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 161 94% 43%;
+    --primary-foreground: 220 24% 7%;
+
+    --secondary: 217 19% 16%;
+    --secondary-foreground: 210 20% 96%;
+
+    --muted: 218 20% 15%;
+    --muted-foreground: 216 12% 68%;
+
+    --accent: 219 26% 18%;
+    --accent-foreground: 210 20% 96%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 96%;
+
+    --border: 217 22% 20%;
+    --input: 217 22% 18%;
+    --ring: 161 94% 43%;
+
+    --radius: 0.75rem;
+
+    /* high-contrast zone language */
+    --zone-red: 0 78% 52%;
+    --zone-yellow: 47 98% 52%;
+    --zone-green: 142 70% 42%;
+    --zone-missing: 220 8% 46%;
+    --zone-low: 220 8% 38%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* distinct dashed, desaturated state for missing / low-confidence evidence —
+   never hidden and never rendered as a bright zone (Visual Language Rule). */
+.zone-swash-missing {
+  stroke-dasharray: 6 4;
+  fill-opacity: 0.05;
+  color: hsl(var(--zone-missing));
+}
+.zone-swash-low-fore {
+  stroke-dasharray: 3 3;
+  fill: hsl(var(--zone-low) / 0.14);
+}
