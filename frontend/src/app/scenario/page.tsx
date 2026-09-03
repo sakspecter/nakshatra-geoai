@@ -268,7 +268,7 @@ function DeltaCard({
 }
 
 function CompareRow({ title, a, b, invert }: { title: string; a: number; b: number; invert?: boolean }) {
-  const delta = (invert ? a - b : b - a) ?? 0;
+  const delta = invert ? a - b : b - a;
   return (
     <tr className="text-xs">
       <td className="px-3 py-2 text-muted-foreground">{title}</td>
