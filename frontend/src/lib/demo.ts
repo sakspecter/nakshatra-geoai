@@ -122,8 +122,16 @@ const HABITATIONS: DemoHabitation[] = [
 ];
 
 function centroid(district_code: string): [number, number] {
-  const row = DEMO_DISTRICTS.find((d) => d.code === district_code);
-  return row ? { CHAMOLI: [79.4, 30.4], PITHORAGARH: [80.2, 29.6], RUDRAPRAYAG: [79.1, 30.2], DHEMAJI: [94.6, 27.5], JORHAT: [94.2, 26.7], KAMRUP: [91.8, 26.1] }[district_code] ?? [79.5, 30.4] : [79.5, 30.4];
+  const centroids: Record<string, [number, number]> = {
+    CHAMOLI: [79.4, 30.4],
+    PITHORAGARH: [80.2, 29.6],
+    RUDRAPRAYAG: [79.1, 30.2],
+    DHEMAJI: [94.6, 27.5],
+    JORHAT: [94.2, 26.7],
+    KAMRUP: [91.8, 26.1],
+  };
+
+  return centroids[district_code.toUpperCase()] ?? [79.4, 30.4];
 }
 
 export function demoMap(featureSource: "all-destinations" | "habitations" = "habitations"): FeatureCollection {
