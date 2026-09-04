@@ -108,6 +108,79 @@ async def ingest_district(
     return IngestResult(**result)
 
 
+@router.post(
+    "/admin/ingest-auto",
+    response_model=IngestResult,
+    summary="Auto-ingest a district: fetch its boundary from GADM, no file upload",
+)
+async def ingest_district_auto(
+    state_name: str = Form(..., description="Human-readable state name, e.g. 'Sikkim'"),
+    district_name: str = Form(..., description="District name, e.g. 'Namchi'"),
+    n_settlements: int = Form(default=15, ge=1, le=200),
+    with_villages: bool = Form(default=False),
+    terrain: Optional[str] = Form(default=None),
+    _session: AsyncSession = Depends(get_db_session),
+) -> IngestResult:
+    """Quick Ingest: downloads the district polygon from GADM, generates
+    deterministic settlements, optionally overlays OSM villages, and runs the
+    pipeline — no file required."""
+    try:
+        from app.services.auto_ingest import auto_ingest_district
+
+        result = auto_ingest_district(
+            state_name=state_name.strip(),
+            district_name=district_name.strip(),
+            n_settlements=n_settlements,
+            with_villages=with_villages,
+            terrain=terrain,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(
+            status_code=500, detail=f"Auto-ingest failed: {exc}"
+        ) from exc
+    return IngestResult(**result)
+
+
+@router.get(
+    "/admin/geo-options",
+    summary="List states and districts available in the GADM catalog",
+)
+async def geo_options(
+    state: Optional[str] = None,
+) -> dict:
+    """Return the GADM states (and optionally districts for a state) so the
+    frontend can render dropdowns without hard-coding geography."""
+    try:
+        from scripts.make_ingestion_file import download_gadm, find_state_key
+        import geopandas as gpd
+
+        gadm_path = download_gadm()
+        gdf = gpd.read_file(gadm_path)
+
+        if state:
+            state_key = find_state_key(state)
+            state_name = None
+            for _, row in gdf.iterrows():
+                from scripts.make_ingestion_file import STATE_ALIASES
+
+                if str(row.get("NAME_1", "")).strip().lower() in STATE_ALIASES.get(state_key, [state_key]):
+                    state_name = str(row["NAME_1"])
+                    break
+            if state_name is None:
+                return {"state": state, "districts": []}
+            districts = sorted(
+                str(d) for d in gdf[gdf["NAME_1"] == state_name]["NAME_2"].unique()
+            )
+            return {"state": state_name, "districts": districts}
+
+        states = sorted({str(s) for s in gdf["NAME_1"].unique()})
+        return {"states": states}
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to read GADM catalog: {exc}")
+
+
 @router.get(
     "/admin/ingested",
     response_model=List[IngestedDistrictSummary],

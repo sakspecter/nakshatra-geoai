@@ -255,9 +255,7 @@ export async function getHabitations(
 }
 
 /** Admin Spatial Ingestion: upload raw GIS boundaries for a new district. */
-export async function ingestDistrict(
-  form: FormData
-): Promise<IngestResult> {
+export async function ingestDistrict(form: FormData): Promise<IngestResult> {
   // Ingestion mutates state, so demo fallback is intentionally disabled: the
   // caller surfaces the HTTP error in the toast instead of faking success.
   const res = await fetch(`${API_BASE}/admin/ingest`, {
@@ -276,4 +274,63 @@ export async function ingestDistrict(
     throw new Error(detail);
   }
   return (await res.json()) as IngestResult;
+}
+
+/**
+ * Quick Ingest: auto-fetch the district boundary from GADM and run the
+ * pipeline — no file upload required. Just pick State + District.
+ */
+export async function ingestDistrictAuto(params: {
+  stateName: string;
+  districtName: string;
+  nSettlements?: number;
+  withVillages?: boolean;
+  terrain?: string | null;
+}): Promise<IngestResult> {
+  const form = new FormData();
+  form.append("state_name", params.stateName);
+  form.append("district_name", params.districtName);
+  if (params.nSettlements) {
+    form.append("n_settlements", String(params.nSettlements));
+  }
+  if (params.withVillages) {
+    form.append("with_villages", "true");
+  }
+  if (params.terrain) {
+    form.append("terrain", params.terrain);
+  }
+
+  const res = await fetch(`${API_BASE}/admin/ingest-auto`, {
+    method: "POST",
+    body: form,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as IngestResult;
+}
+
+/** Fetch the GADM state/district catalog for the Quick Ingest dropdowns. */
+export async function getGeoOptions(state?: string): Promise<{
+  states?: string[];
+  state?: string;
+  districts?: string[];
+}> {
+  const qs = state ? `?state=${encodeURIComponent(state)}` : "";
+  const res = await fetch(`${API_BASE}/admin/geo-options${qs}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    // Non-fatal: the UI falls back to free-text entry
+    return state ? { state, districts: [] } : { states: [] };
+  }
+  return (await res.json()) as { states?: string[]; state?: string; districts?: string[] };
 }

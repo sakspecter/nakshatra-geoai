@@ -12,23 +12,43 @@
 import * as React from "react";
 import {
   CloudUpload,
+  Database,
   FileUp,
   Loader2,
   MapPinned,
   RotateCcw,
   Sparkles,
   TriangleAlert,
+  Wand2,
 } from "lucide-react";
 import CommandShell from "@/components/layout/command-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastProvider, useToast } from "@/components/ui/toast";
-import { ingestDistrict } from "@/lib/api";
+import {
+  getGeoOptions,
+  ingestDistrict,
+  ingestDistrictAuto,
+} from "@/lib/api";
 import type { IngestResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -54,19 +74,93 @@ export default function AdminUploadPage() {
 }
 
 function AdminUploadInner() {
+  const { toast } = useToast();
+  const [tab, setTab] = React.useState<"quick" | "upload">("quick");
+
+  // shared pipeline state
+  const [stageIndex, setStageIndex] = React.useState(-1);
+  const [error, setError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<IngestResult | null>(null);
+  const running = stageIndex >= 0 && stageIndex < STAGES.length - 1;
+
+  // ---- Quick Ingest state (auto-fetch from GADM) ----
+  const [states, setStates] = React.useState<string[]>([]);
+  const [districts, setDistricts] = React.useState<string[]>([]);
+  const [quickState, setQuickState] = React.useState<string>("");
+  const [quickDistrict, setQuickDistrict] = React.useState<string>("");
+  const [nSettlements, setNSettlements] = React.useState(15);
+
+  React.useEffect(() => {
+    let alive = true;
+    getGeoOptions()
+      .then((d) => {
+        if (alive) setStates(d.states ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!quickState) return;
+    let alive = true;
+    setDistricts([]);
+    setQuickDistrict("");
+    getGeoOptions(quickState)
+      .then((d) => {
+        if (alive) setDistricts(d.districts ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [quickState]);
+
+  const startQuick = React.useCallback(async () => {
+    if (!quickState.trim() || !quickDistrict.trim()) {
+      setError("Pick both a state and a district.");
+      return;
+    }
+    setError(null);
+    setResult(null);
+    setStageIndex(0);
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i < STAGES.length - 1; i++) {
+      timers.push(setTimeout(() => setStageIndex(i), 700 * i));
+    }
+
+    try {
+      const res = await ingestDistrictAuto({
+        stateName: quickState.trim(),
+        districtName: quickDistrict.trim(),
+        nSettlements,
+      });
+      timers.forEach(clearTimeout);
+      setStageIndex(STAGES.length - 1);
+      setResult(res);
+      toast(
+        `District ${res.district_name} (${res.state_name}) successfully processed: ${res.habitations_loaded} habitations loaded.`,
+        { title: "Ingestion complete", variant: "success" }
+      );
+    } catch (e) {
+      timers.forEach(clearTimeout);
+      setStageIndex(-1);
+      const message = e instanceof Error ? e.message : "Ingestion failed.";
+      setError(message);
+      toast(message, { title: "Ingestion failed", variant: "error" });
+    }
+  }, [quickState, quickDistrict, nSettlements, toast]);
+
+  // ---- File Upload state ----
   const [stateName, setStateName] = React.useState("Sikkim");
   const [districtName, setDistrictName] = React.useState("Namchi");
   const [file, setFile] = React.useState<File | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
-  const [stageIndex, setStageIndex] = React.useState(-1); // -1 = idle
-  const [error, setError] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<IngestResult | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
 
-  const running = stageIndex >= 0 && stageIndex < STAGES.length - 1;
-
-  const start = React.useCallback(async () => {
+  const startUpload = React.useCallback(async () => {
     if (!stateName.trim() || !districtName.trim()) {
       setError("Both a state name and a district name are required.");
       return;
@@ -79,8 +173,6 @@ function AdminUploadInner() {
     setResult(null);
     setStageIndex(0);
 
-    // client-side stage animation mirrors the synchronous backend pipeline;
-    // each step advances on a short timer while the upload is in flight.
     const timers: ReturnType<typeof setTimeout>[] = [];
     for (let i = 1; i < STAGES.length - 1; i++) {
       timers.push(setTimeout(() => setStageIndex(i), 700 * i));
@@ -125,9 +217,8 @@ function AdminUploadInner() {
               <MapPinned className="h-6 w-6" /> Admin · Spatial Ingestion
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Onboard any Indian district without code changes. Raw boundaries are
-              normalized to WGS 84, terrain drivers spatially joined, hazard bands
-              inferred, and Rule-4 capacity bottlenecks computed automatically.
+              Onboard any Indian district without code changes. Pick a state and
+              district to auto-fetch the boundary, or upload your own file.
             </p>
           </div>
           <Badge variant="outline" className="uppercase">
@@ -146,33 +237,196 @@ function AdminUploadInner() {
         </Alert>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-          <UploadCard
-            stateName={stateName}
-            districtName={districtName}
-            onStateChange={setStateName}
-            onDistrictChange={setDistrictName}
-            file={file}
-            dragOver={dragOver}
-            running={running}
-            error={error}
-            inputRef={inputRef}
-            onFile={(f) => {
-              setFile(f);
-              setError(null);
-            }}
-            onDragOverChange={setDragOver}
-            onStart={start}
-            onReset={reset}
-          />
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Database className="h-4 w-4" /> Ingestion method
+              </CardTitle>
+              <CardDescription>
+                Quick Ingest auto-fetches the district boundary — no file needed
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs
+                value={tab}
+                onValueChange={(v) => setTab(v as "quick" | "upload")}
+                className="w-full"
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="quick">
+                    <Wand2 className="mr-2 h-4 w-4" /> Quick Ingest
+                  </TabsTrigger>
+                  <TabsTrigger value="upload">
+                    <FileUp className="mr-2 h-4 w-4" /> Upload File
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="quick" className="mt-4 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>State</Label>
+                    <Select value={quickState} onValueChange={setQuickState}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select state" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {states.length === 0 && (
+                          <SelectItem value="__loading" disabled>
+                            Loading states…
+                          </SelectItem>
+                        )}
+                        {states.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>District</Label>
+                    <Select
+                      value={quickDistrict}
+                      onValueChange={setQuickDistrict}
+                      disabled={!quickState || districts.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={quickState ? "Select district" : "Pick state first"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {districts.map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {d}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="n-settlements">
+                      Settlements: {nSettlements}
+                    </Label>
+                    <input
+                      id="n-settlements"
+                      type="range"
+                      min={3}
+                      max={50}
+                      value={nSettlements}
+                      onChange={(e) => setNSettlements(Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Number of representative settlements generated inside the district
+                    </p>
+                  </div>
+                  {tab === "quick" && error && (
+                    <Alert variant="destructive">
+                      <TriangleAlert className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={startQuick} disabled={running}>
+                      {running ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="mr-2 h-4 w-4" /> Fetch &amp; Ingest
+                        </>
+                      )}
+                    </Button>
+                    <Button variant="outline" onClick={reset} disabled={running}>
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="upload" className="mt-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ing-state">State name</Label>
+                      <Input
+                        id="ing-state"
+                        value={stateName}
+                        onChange={(e) => setStateName(e.target.value)}
+                        placeholder="Sikkim"
+                        disabled={running}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ing-district">District name</Label>
+                      <Input
+                        id="ing-district"
+                        value={districtName}
+                        onChange={(e) => setDistrictName(e.target.value)}
+                        placeholder="Namchi"
+                        disabled={running}
+                      />
+                    </div>
+                  </div>
+
+                  <DropZone
+                    file={file}
+                    dragOver={dragOver}
+                    disabled={running}
+                    onFile={(f) => {
+                      setFile(f);
+                      setError(null);
+                    }}
+                    onDragOverChange={setDragOver}
+                    onBrowse={() => inputRef.current?.click()}
+                  />
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept={ACCEPTED}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      if (f) setFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+
+                  {tab === "upload" && error && (
+                    <Alert variant="destructive">
+                      <TriangleAlert className="h-4 w-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={startUpload} disabled={running}>
+                      {running ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…
+                        </>
+                      ) : (
+                        <>
+                          <CloudUpload className="mr-2 h-4 w-4" /> Start ingestion
+                        </>
+                      )}
+                    </Button>
+                    <Button variant="outline" onClick={reset} disabled={running}>
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
           <div className="space-y-4">
             <PipelineProgress stageIndex={stageIndex} />
             {result && <ResultCard result={result} />}
             {!result && !running && (
               <Card className="border-dashed">
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No ingestion yet. Upload a boundary file and press{" "}
-                  <b>Start ingestion</b> — the new district appears instantly in the
-                  map selectors (try Sikkim → Namchi after ingest).
+                  No ingestion yet. Use <b>Quick Ingest</b> to auto-fetch a district, or{" "}
+                  <b>Upload File</b> with your own boundaries.
                 </CardContent>
               </Card>
             )}
@@ -180,121 +434,6 @@ function AdminUploadInner() {
         </div>
       </div>
     </CommandShell>
-  );
-}
-
-interface UploadCardProps {
-  stateName: string;
-  districtName: string;
-  onStateChange: (v: string) => void;
-  onDistrictChange: (v: string) => void;
-  file: File | null;
-  dragOver: boolean;
-  running: boolean;
-  error: string | null;
-  inputRef: React.RefObject<HTMLInputElement>;
-  onFile: (f: File | null) => void;
-  onDragOverChange: (v: boolean) => void;
-  onStart: () => void;
-  onReset: () => void;
-}
-
-function UploadCard(props: UploadCardProps) {
-  const {
-    stateName,
-    districtName,
-    onStateChange,
-    onDistrictChange,
-    file,
-    dragOver,
-    running,
-    error,
-    inputRef,
-    onFile,
-    onDragOverChange,
-    onStart,
-    onReset,
-  } = props;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FileUp className="h-4 w-4" /> District boundary upload
-        </CardTitle>
-        <CardDescription>
-          e.g. State <b>Sikkim</b> · District <b>Namchi</b>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="ing-state">State name</Label>
-            <Input
-              id="ing-state"
-              value={stateName}
-              onChange={(e) => onStateChange(e.target.value)}
-              placeholder="Sikkim"
-              disabled={running}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="ing-district">District name</Label>
-            <Input
-              id="ing-district"
-              value={districtName}
-              onChange={(e) => onDistrictChange(e.target.value)}
-              placeholder="Namchi"
-              disabled={running}
-            />
-          </div>
-        </div>
-
-        <DropZone
-          file={file}
-          dragOver={dragOver}
-          disabled={running}
-          onFile={onFile}
-          onDragOverChange={onDragOverChange}
-          onBrowse={() => inputRef.current?.click()}
-        />
-        <input
-          ref={inputRef}
-          type="file"
-          accept={ACCEPTED}
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            if (f) onFile(f);
-            e.target.value = "";
-          }}
-        />
-
-        {error && (
-          <Alert variant="destructive">
-            <TriangleAlert className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="flex gap-2">
-          <Button className="flex-1" onClick={onStart} disabled={running}>
-            {running ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…
-              </>
-            ) : (
-              <>
-                <CloudUpload className="mr-2 h-4 w-4" /> Start ingestion
-              </>
-            )}
-          </Button>
-          <Button variant="outline" onClick={onReset} disabled={running}>
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

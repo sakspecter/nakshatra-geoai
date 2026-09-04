@@ -142,16 +142,32 @@ def read_vector_file(raw: bytes, filename: str) -> gpd.GeoDataFrame:
             zpath.write_bytes(raw)
             with zipfile.ZipFile(zpath) as zf:
                 zf.extractall(workdir)
+            # geopandas needs the .shp; read_file on the folder finds it
             gdf = gpd.read_file(workdir)
         else:
             gpath = workdir / f"upload{suffix or '.geojson'}"
             gpath.write_bytes(raw)
             gdf = gpd.read_file(gpath)
+    except Exception as exc:
+        raise ValueError(
+            f"Could not parse '{filename}': {exc}. "
+            "Ensure it is a valid GeoJSON FeatureCollection, GeoPackage, or zipped "
+            "Shapefile with a .shp inside."
+        ) from exc
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
     if gdf.empty:
         raise ValueError("Uploaded vector file contains no features/habitations.")
+
+    # Drop rows with no geometry rather than failing the whole batch
+    before = len(gdf)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    if gdf.empty:
+        raise ValueError(
+            f"Uploaded file had {before} feature(s) but none had valid geometry."
+        )
+
     return gdf.to_crs(epsg=4326)
 
 
