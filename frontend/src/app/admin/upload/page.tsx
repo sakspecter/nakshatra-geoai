@@ -89,33 +89,41 @@ function AdminUploadInner() {
   const [quickState, setQuickState] = React.useState<string>("");
   const [quickDistrict, setQuickDistrict] = React.useState<string>("");
   const [nSettlements, setNSettlements] = React.useState(15);
+  const [statesError, setStatesError] = React.useState<string | null>(null);
+  const [districtsError, setDistrictsError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    let alive = true;
+  const loadStates = React.useCallback(() => {
+    setStatesError(null);
     getGeoOptions()
-      .then((d) => {
-        if (alive) setStates(d.states ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+      .then((d) => setStates(d.states ?? []))
+      .catch((e) =>
+        setStatesError(
+          e instanceof Error ? e.message : "Could not load the state catalog."
+        )
+      );
+  }, []);
+
+  const loadDistricts = React.useCallback((state: string) => {
+    setDistrictsError(null);
+    getGeoOptions(state)
+      .then((d) => setDistricts(d.districts ?? []))
+      .catch((e) =>
+        setDistrictsError(
+          e instanceof Error ? e.message : "Could not load districts."
+        )
+      );
   }, []);
 
   React.useEffect(() => {
+    loadStates();
+  }, [loadStates]);
+
+  React.useEffect(() => {
     if (!quickState) return;
-    let alive = true;
     setDistricts([]);
     setQuickDistrict("");
-    getGeoOptions(quickState)
-      .then((d) => {
-        if (alive) setDistricts(d.districts ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [quickState]);
+    loadDistricts(quickState);
+  }, [quickState, loadDistricts]);
 
   const startQuick = React.useCallback(async () => {
     if (!quickState.trim() || !quickDistrict.trim()) {
@@ -264,44 +272,68 @@ function AdminUploadInner() {
                 <TabsContent value="quick" className="mt-4 space-y-4">
                   <div className="space-y-1.5">
                     <Label>State</Label>
-                    <Select value={quickState} onValueChange={setQuickState}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {states.length === 0 && (
-                          <SelectItem value="__loading" disabled>
-                            Loading states…
-                          </SelectItem>
-                        )}
-                        {states.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {statesError ? (
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                        <span className="flex-1">{statesError}</span>
+                        <Button size="sm" variant="outline" onClick={loadStates}>
+                          Retry
+                        </Button>
+                      </div>
+                    ) : (
+                      <Select value={quickState} onValueChange={setQuickState}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select state" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {states.length === 0 && (
+                            <SelectItem value="__loading" disabled>
+                              Loading states…
+                            </SelectItem>
+                          )}
+                          {states.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>District</Label>
-                    <Select
-                      value={quickDistrict}
-                      onValueChange={setQuickDistrict}
-                      disabled={!quickState || districts.length === 0}
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={quickState ? "Select district" : "Pick state first"}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {districts.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {districtsError ? (
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                        <span className="flex-1">{districtsError}</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => quickState && loadDistricts(quickState)}
+                        >
+                          Retry
+                        </Button>
+                      </div>
+                    ) : (
+                      <Select
+                        value={quickDistrict}
+                        onValueChange={setQuickDistrict}
+                        disabled={!quickState || districts.length === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={quickState ? "Select district" : "Pick state first"}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {districts.map((d) => (
+                            <SelectItem key={d} value={d}>
+                              {d}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="n-settlements">

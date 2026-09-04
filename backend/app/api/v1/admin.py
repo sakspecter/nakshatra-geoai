@@ -12,6 +12,8 @@ the in-process registry and self-heal into PostGIS when a session is wired).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import (
@@ -145,40 +147,45 @@ async def ingest_district_auto(
 
 @router.get(
     "/admin/geo-options",
-    summary="List states and districts available in the GADM catalog",
+    summary="List states and districts available for auto-ingest (instant, static catalog)",
 )
 async def geo_options(
     state: Optional[str] = None,
 ) -> dict:
-    """Return the GADM states (and optionally districts for a state) so the
-    frontend can render dropdowns without hard-coding geography."""
-    try:
-        from scripts.make_ingestion_file import download_gadm, find_state_key
-        import geopandas as gpd
+    """Serve the bundled state->district catalog (9 KB static JSON).
 
-        gadm_path = download_gadm()
-        gdf = gpd.read_file(gadm_path)
+    Instant response - no GADM download. The full GADM boundary file is only
+    fetched lazily when an actual auto-ingest runs (and then cached)."""
+    catalog_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "data" / "india_districts.json"
+    )
+    if not catalog_path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Static district catalog missing. Run scripts/gen_catalog.py once.",
+        )
 
-        if state:
-            state_key = find_state_key(state)
-            state_name = None
-            for _, row in gdf.iterrows():
-                from scripts.make_ingestion_file import STATE_ALIASES
+    catalog: dict = json.loads(catalog_path.read_text(encoding="utf-8"))
 
-                if str(row.get("NAME_1", "")).strip().lower() in STATE_ALIASES.get(state_key, [state_key]):
-                    state_name = str(row["NAME_1"])
-                    break
-            if state_name is None:
-                return {"state": state, "districts": []}
-            districts = sorted(
-                str(d) for d in gdf[gdf["NAME_1"] == state_name]["NAME_2"].unique()
+    if state:
+        # case-insensitive + alias-tolerant lookup
+        wanted = state.strip().lower()
+        matched = next(
+            (k for k in catalog if k.lower() == wanted),
+            None,
+        )
+        if matched is None:
+            # try substring
+            matched = next(
+                (k for k in catalog if wanted in k.lower() or k.lower() in wanted),
+                None,
             )
-            return {"state": state_name, "districts": districts}
+        if matched is None:
+            return {"state": state, "districts": []}
+        return {"state": matched, "districts": catalog[matched]}
 
-        states = sorted({str(s) for s in gdf["NAME_1"].unique()})
-        return {"states": states}
-    except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"Failed to read GADM catalog: {exc}")
+    return {"states": sorted(catalog.keys())}
 
 
 @router.get(
