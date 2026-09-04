@@ -63,7 +63,12 @@ export interface DistrictDescriptor {
   boundaryColor: string;
 }
 
-export type StateCode = "UK" | "AS";
+/**
+ * State codes are no longer a closed union: the nationwide catalog is driven by
+ * the backend (`/spatial/states`). UK/AS remain the typed pilot convenience
+ * members; `string` allows any newly ingested state (e.g. SK - Sikkim).
+ */
+export type StateCode = "UK" | "AS" | "SK" | (string & {});
 
 export const STATES: Array<{
   code: StateCode;
@@ -71,6 +76,7 @@ export const STATES: Array<{
 }> = [
   { code: "UK", label: "Uttarakhand" },
   { code: "AS", label: "Assam" },
+  { code: "SK", label: "Sikkim" },
 ];
 
 // the six "district comparison" cards across the two pilot geographies

@@ -307,3 +307,154 @@ export function demoSettlement(id?: number | string): SettlementProfile | undefi
 export function demoScenarioDemo(): { red: number; yellow: number; green: number } {
   return { red: 0, yellow: 0, green: 0 };
 }
+
+// ---------------------------------------------------------------------------
+// nationwide spatial catalog demo fixtures (cascading selectors + admin page)
+// ---------------------------------------------------------------------------
+export interface DemoSpatialHabitation {
+  habitation_id: number;
+  habitation_code: string;
+  name: string;
+  state_code: string;
+  district_code: string;
+  zone: "red" | "yellow" | "green";
+  risk: number;
+  population: number;
+  lon: number;
+  lat: number;
+}
+
+/** Namchi (Sikkim) settlements used by demo mode until an ingestion lands. */
+export const NAMCHI_HABITATIONS: DemoSpatialHabitation[] = [
+  { habitation_id: 901, habitation_code: "SK-NAMCHI-001", name: "Namchi Bazaar", state_code: "SK", district_code: "NAMCHI", zone: "yellow", risk: 0.32, population: 1860, lon: 88.3058, lat: 27.1649 },
+  { habitation_id: 902, habitation_code: "SK-NAMCHI-002", name: "Jorethang Lower", state_code: "SK", district_code: "NAMCHI", zone: "yellow", risk: 0.28, population: 720, lon: 88.3153, lat: 27.1112 },
+  { habitation_id: 903, habitation_code: "SK-NAMCHI-003", name: "Boomtar Ridge", state_code: "SK", district_code: "NAMCHI", zone: "red", risk: 0.66, population: 410, lon: 88.2815, lat: 27.1934 },
+  { habitation_id: 904, habitation_code: "SK-NAMCHI-004", name: "Melli Valley", state_code: "SK", district_code: "NAMCHI", zone: "yellow", risk: 0.21, population: 260, lon: 88.2756, lat: 27.0751 },
+];
+
+const SPATIAL_STATE_DEMO: Array<{
+  state_code: string;
+  state_name: string;
+  region: string;
+}> = [
+  { state_code: "UK", state_name: "Uttarakhand", region: "North" },
+  { state_code: "AS", state_name: "Assam", region: "North-East" },
+  { state_code: "SK", state_name: "Sikkim", region: "North-East" },
+  { state_code: "WB", state_name: "West Bengal", region: "East" },
+  { state_code: "MH", state_name: "Maharashtra", region: "West" },
+  { state_code: "KA", state_name: "Karnataka", region: "South" },
+  { state_code: "TN", state_name: "Tamil Nadu", region: "South" },
+  { state_code: "KL", state_name: "Kerala", region: "South" },
+  { state_code: "HP", state_name: "Himachal Pradesh", region: "North" },
+  { state_code: "GJ", state_name: "Gujarat", region: "West" },
+];
+
+const SPATIAL_DISTRICT_DEMO: Record<string, Array<{ district_code: string; district_name: string }>> = {
+  UK: [
+    { district_code: "CHAMOLI", district_name: "Chamoli" },
+    { district_code: "PITHORAGARH", district_name: "Pithoragarh" },
+    { district_code: "RUDRAPRAYAG", district_name: "Rudraprayag" },
+  ],
+  AS: [
+    { district_code: "DHEMAJI", district_name: "Dhemaji" },
+    { district_code: "JORHAT", district_name: "Jorhat" },
+    { district_code: "KAMRUP", district_name: "Kamrup Metro" },
+  ],
+  SK: [
+    { district_code: "NAMCHI", district_name: "Namchi" },
+    { district_code: "GANGTOK", district_name: "Gangtok" },
+  ],
+};
+
+export function demoStates(): Array<{
+  state_code: string;
+  state_name: string;
+  region: string;
+  district_count: number;
+}> {
+  return SPATIAL_STATE_DEMO.map((s) => ({
+    ...s,
+    district_count: (SPATIAL_DISTRICT_DEMO[s.state_code] ?? []).length,
+  }));
+}
+
+export function demoDistricts(
+  stateCode: string
+): Array<{
+  district_code: string;
+  district_name: string;
+  state_code: string;
+  state_name: string;
+  habitation_count: number;
+  bbox: [number, number, number, number];
+  source: "seed" | "ingested";
+}> {
+  const stateName = SPATIAL_STATE_DEMO.find((s) => s.state_code === stateCode)?.state_name ?? stateCode;
+  return (SPATIAL_DISTRICT_DEMO[stateCode] ?? []).map((d) => {
+    const habCount =
+      d.district_code === "NAMCHI"
+        ? NAMCHI_HABITATIONS.length
+        : HABITATIONS.filter((h) => h.district_code === d.district_code).length;
+    return {
+      ...d,
+      state_code: stateCode,
+      state_name: stateName,
+      habitation_count: habCount,
+      bbox: districtBbox(d.district_code, habCount),
+      source: "seed" as const,
+    };
+  });
+}
+
+function districtBbox(districtCode: string, habCount: number): [number, number, number, number] {
+  const c = centroid(districtCode);
+  const span = habCount > 0 ? 0.18 : 0.08;
+  return [c[0] - span, c[1] - span * 0.7, c[0] + span, c[1] + span * 0.7];
+}
+
+export function demoHabitations(districtCode: string): FeatureCollection {
+  const code = districtCode.toUpperCase();
+  if (code === "NAMCHI") {
+    return {
+      type: "FeatureCollection",
+      features: NAMCHI_HABITATIONS.map((h) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [h.lon, h.lat] },
+        properties: {
+          kind: "habitation",
+          habitation_id: h.habitation_id,
+          code: h.habitation_code,
+          name: h.name,
+          state_code: h.state_code,
+          district_code: h.district_code,
+          zone: h.zone,
+          risk: h.risk,
+          population: h.population,
+          vulnerable_population: Math.round(h.population * 0.55),
+        },
+      })),
+      meta: { count: NAMCHI_HABITATIONS.length, srs: 4326, bbox: districtBbox("NAMCHI", NAMCHI_HABITATIONS.length) },
+    };
+  }
+  const rows = HABITATIONS.filter((h) => h.district_code.toUpperCase() === code);
+  return {
+    type: "FeatureCollection",
+    features: rows.map((h) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [h.lon, h.lat] },
+      properties: {
+        kind: "habitation",
+        habitation_id: h.habitation_id,
+        code: h.habitation_code,
+        name: h.name,
+        state_code: h.state_code,
+        district_code: h.district_code,
+        zone: h.zone,
+        risk: h.risk,
+        population: h.population,
+        vulnerable_population: Math.round(h.population * h.vuln),
+      },
+    })),
+    meta: { count: rows.length, srs: 4326, bbox: districtBbox(code, rows.length) },
+  };
+}

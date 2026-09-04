@@ -147,10 +147,16 @@ class ConstraintType(str, Enum):
 
 @unique
 class StateCode(str, Enum):
-    """The two pilot states for the geography router."""
+    """Supported states for the geography router.
+
+    Pilot convenience members (UK/AS) mirror the legacy ``state_code`` DB enum;
+    the nationwide spatial catalog is TEXT-native on ``state_code`` so any Indian
+    state/UT can be onboarded without code changes (the DB enum is extended only
+    where the strict ``geo_admin_units`` mirror table needs it, e.g. SK)."""
 
     UTTARAKHAND = "UK"
     ASSAM = "AS"
+    SIKKIM = "SK"
 
 
 @unique

@@ -38,6 +38,7 @@ def _baseline_from_raw(raw: dict) -> HabitationBaseline:
     return HabitationBaseline(
         habitation_id=int(raw["habitation_id"]),
         habitation_code=raw["code"],
+        name=raw.get("name", raw["code"]),
         state_code=raw["state_code"],
         district_code=raw["district_code"],
         hazard_scores=hazard,

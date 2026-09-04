@@ -3,7 +3,7 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Layers } from "lucide-react";
+import { Layers, MapPin } from "lucide-react";
 import CommandShell from "@/components/layout/command-shell";
 import type { LayerVis } from "@/components/map/risk-map";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +11,18 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +30,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getMapLayers } from "@/lib/api";
-import type { FeatureCollection } from "@/lib/types";
+import { getHabitations, getDistricts, getStates, getMapLayers } from "@/lib/api";
+import type {
+  DistrictMeta,
+  FeatureCollection,
+  StateMeta,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // Maplibre must never touch the server during SSR — load inside the browser.
@@ -60,10 +72,52 @@ export default function MapPage() {
   });
   const [summary, setSummary] = React.useState<Record<string, unknown> | null>(null);
 
+  // cascading district focus (nationwide)
+  const [states, setStates] = React.useState<StateMeta[]>([]);
+  const [districts, setDistricts] = React.useState<DistrictMeta[]>([]);
+  const [focusState, setFocusState] = React.useState<string>("UK");
+  const [focusDistrict, setFocusDistrict] = React.useState<string>("CHAMOLI");
+  const [bounds, setBounds] = React.useState<[[number, number], [number, number]] | null>(null);
+
   React.useEffect(() => {
     getMapLayers("habitations").then((d) => setHab(d.payload));
     getMapLayers("infra").then((d) => setInfra(d.payload));
+    getStates().then((d) => setStates(d.payload));
   }, []);
+
+  // load districts whenever the focused state changes
+  React.useEffect(() => {
+    if (focusState === "ALL") return;
+    getDistricts(focusState).then((d) => {
+      setDistricts(d.payload);
+      if (!d.payload.some((x) => x.district_code === focusDistrict)) {
+        const first = d.payload[0]?.district_code ?? "";
+        setFocusDistrict(first);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusState]);
+
+  // selecting a district (incl. freshly ingested ones) re-renders its zones
+  // and flies the camera to the district bounding box
+  React.useEffect(() => {
+    if (!focusDistrict || focusState === "ALL") return;
+    let alive = true;
+    getHabitations(focusDistrict).then((d) => {
+      if (!alive) return;
+      setHab(d.payload);
+      const bbox = d.payload.meta?.bbox;
+      if (bbox && bbox.length === 4 && bbox[0] !== bbox[2]) {
+        setBounds([
+          [bbox[0], bbox[1]],
+          [bbox[2], bbox[3]],
+        ]);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [focusDistrict, focusState]);
 
   const toggle = (key: keyof LayerVis) => setVis((v) => ({ ...v, [key]: !v[key] }));
 
@@ -76,6 +130,51 @@ export default function MapPage() {
       <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[300px_1fr]">
         {/* layer panel */}
         <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <MapPin className="h-4 w-4" /> District focus
+              </CardTitle>
+              <CardDescription>
+                Nationwide catalog — freshly ingested districts appear here instantly
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Select value={focusState} onValueChange={(v) => { setFocusState(v); setBounds(null); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="State" />
+                </SelectTrigger>
+                <SelectContent>
+                  {states.map((s) => (
+                    <SelectItem key={s.state_code} value={s.state_code}>
+                      {s.state_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={focusDistrict}
+                onValueChange={setFocusDistrict}
+                disabled={districts.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="District" />
+                </SelectTrigger>
+                <SelectContent>
+                  {districts.map((d) => (
+                    <SelectItem key={d.district_code} value={d.district_code}>
+                      {d.district_name} · {d.habitation_count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Selecting a district loads its Red/Yellow/Green zones and flies the
+                camera to its bounding box.
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -155,6 +254,7 @@ export default function MapPage() {
               habitations={hab}
               destinations={infra}
               layerVis={vis}
+              fitBounds={bounds}
               onSelectFeatures={(p) => setSummary(p ? { properties: p } : null)}
             />
           ) : (

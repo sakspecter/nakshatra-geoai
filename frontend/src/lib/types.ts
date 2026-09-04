@@ -92,7 +92,13 @@ export interface GeoFeature {
 export interface FeatureCollection {
   type: "FeatureCollection";
   features: GeoFeature[];
-  meta?: { count?: number; srs?: number } | null;
+  meta?: {
+    count?: number;
+    srs?: number;
+    /** [west, south, east, north] for MapLibre fitBounds */
+    bbox?: [number, number, number, number];
+    district_code?: string;
+  } | null;
 }
 
 // ---- capacity / relocation -----------------------------------------------
@@ -165,6 +171,25 @@ export interface ScenarioSimRow {
   baseline_zone: Zone;
   scenario_zone: Zone;
   zones_changed: boolean;
+  habitation_name?: string;
+  habitation_code?: string;
+  state_code?: string;
+  district_code?: string;
+}
+
+/** Itemized per-habitation risk delta (explicit row-set from the simulator). */
+export type DeltaCategory = "Improved" | "Degraded" | "Unchanged";
+
+export interface HabitationDeltaRow {
+  habitation_id: number;
+  habitation_name: string;
+  habitation_code: string;
+  state_code: string;
+  district_code: string;
+  pre_risk_score: number;
+  post_risk_score: number;
+  risk_delta: number;
+  delta_category: DeltaCategory;
 }
 
 export interface ScenarioDeltas {
@@ -184,7 +209,44 @@ export interface ScenarioSimulation {
   side_by_side: Record<string, number>;
   delta: Record<string, number>;
   rows: ScenarioSimRow[];
+  /** Explicit row-level breakdown; empty only when the backend has no data. */
+  habitation_deltas?: HabitationDeltaRow[];
   baseline_untouched: boolean;
+}
+
+// ---- nationwide spatial catalog -------------------------------------------
+export interface StateMeta {
+  state_code: string;
+  state_name: string;
+  region: string;
+  district_count: number;
+}
+
+export interface DistrictMeta {
+  district_code: string;
+  district_name: string;
+  state_code: string;
+  state_name: string;
+  habitation_count: number;
+  bbox: [number, number, number, number];
+  source: "seed" | "ingested";
+}
+
+export interface IngestResult {
+  status: string;
+  state_code: string;
+  state_name: string;
+  district_name: string;
+  district_code: string;
+  terrain: string;
+  habitations_loaded: number;
+  zone_breakdown: Record<string, number>;
+  capacity_limiter: string | null;
+  bbox: [number, number, number, number];
+  dataset_version: string;
+  model_version: string;
+  pipeline_stages: string[];
+  produced_at: string;
 }
 
 export type HazardType = 'flood' | 'drought' | 'landslide' | 'cyclone' | 'heatwave' | string;

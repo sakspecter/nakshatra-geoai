@@ -9,6 +9,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   Map,
+  UploadCloud,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,13 +25,16 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useAppState } from "@/contexts/app-state";
+import { getStates } from "@/lib/api";
+import type { StateMeta } from "@/lib/types";
 
 type ScreenKey =
   | "overview"
   | "map"
   | "settlement"
   | "relocation"
-  | "scenario";
+  | "scenario"
+  | "admin";
 
 const NAV: Array<{ key: ScreenKey; href: string; label: string; icon: React.ElementType }> = [
   { key: "overview", href: "/overview", label: "Overview Dashboard", icon: LayoutDashboard },
@@ -38,6 +42,7 @@ const NAV: Array<{ key: ScreenKey; href: string; label: string; icon: React.Elem
   { key: "settlement", href: "/settlement/102", label: "Settlement Analysis", icon: Users },
   { key: "relocation", href: "/relocation", label: "Relocation Planner", icon: ArrowRightLeft },
   { key: "scenario", href: "/scenario", label: "Scenario Simulator", icon: FlaskConical },
+  { key: "admin", href: "/admin/upload", label: "Admin · Spatial Ingest", icon: UploadCloud },
 ];
 
 export default function CommandShell({
@@ -93,7 +98,7 @@ export default function CommandShell({
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
             System operational
           </p>
-          <p>UK &amp; Assam pilots · versioned analysis (Rule 6)</p>
+          <p>Nationwide districts · versioned analysis (Rule 6)</p>
         </div>
       </aside>
 
@@ -112,7 +117,10 @@ export default function CommandShell({
               <span className="font-medium">LIVE</span>
             </span>
             <Badge variant="outline" className="uppercase">
-              Geo: {activeState === "ALL" ? "All Pilots" : STATES.find((s) => s.code === activeState)?.label ?? activeState}
+              Geo:{" "}
+              {activeState === "ALL"
+                ? "All Pilots"
+                : STATES.find((s) => s.code === activeState)?.label ?? activeState}
             </Badge>
             <Badge
               variant={confidenceState === "confirmed" ? "secondary" : "outline"}
@@ -143,6 +151,11 @@ export default function CommandShell({
   );
 }
 
+/**
+ * Cascading geography selector driven by the nationwide backend catalog
+ * (`/spatial/states`) with a deterministic demo fallback — no hard-coded
+ * state list, so newly ingested states appear automatically.
+ */
 function GeographySelect({
   value,
   onChange,
@@ -150,6 +163,18 @@ function GeographySelect({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const [states, setStates] = React.useState<StateMeta[]>([]);
+
+  React.useEffect(() => {
+    let alive = true;
+    getStates().then((d) => {
+      if (alive) setStates(d.payload);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger className="h-9 w-44">
@@ -157,8 +182,12 @@ function GeographySelect({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="ALL">All Pilots</SelectItem>
-        <SelectItem value="UK">Uttarakhand</SelectItem>
-        <SelectItem value="AS">Assam</SelectItem>
+        {states.map((s) => (
+          <SelectItem key={s.state_code} value={s.state_code}>
+            {s.state_name}
+            {s.district_count > 0 ? ` (${s.district_count})` : ""}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

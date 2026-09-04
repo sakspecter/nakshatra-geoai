@@ -54,6 +54,28 @@ class SimulatedRowOut(BaseModel):
     baseline_zone: str
     scenario_zone: str
     zones_changed: bool
+    habitation_name: str = ""
+    habitation_code: str = ""
+    state_code: str = ""
+    district_code: str = ""
+
+
+class HabitationDeltaRow(BaseModel):
+    """Itemized per-habitation risk delta surfaced as an explicit row-set.
+
+    Fixes the dashboard warning where a run returned only aggregate KPIs. The
+    simulator now always materializes one row per baseline habitation with the
+    pre/post risk scores and a human-readable delta category."""
+
+    habitation_id: int
+    habitation_name: str = ""
+    habitation_code: str = ""
+    state_code: str = ""
+    district_code: str = ""
+    pre_risk_score: float
+    post_risk_score: float
+    risk_delta: float
+    delta_category: Literal["Improved", "Degraded", "Unchanged"]
 
 
 class ScenarioSimulateResponse(BaseModel):
@@ -66,6 +88,8 @@ class ScenarioSimulateResponse(BaseModel):
     side_by_side: dict = Field(default_factory=dict)          # baseline vs scenario counts
     delta: dict = Field(default_factory=dict)                 # explicit metric deltas
     rows: List[SimulatedRowOut] = Field(default_factory=list)
+    # explicit row-level breakdown (itemized habitation deltas)
+    habitation_deltas: List[HabitationDeltaRow] = Field(default_factory=list)
     baseline_untouched: bool = True
     note: str = "Baseline ground-truth is immutable; simulation runs only on deep copies."
 
@@ -124,6 +148,26 @@ def _run_simulation(
             baseline_zone=s.baseline.baseline_zone.value,
             scenario_zone=s.scenario_zone.value,
             zones_changed=s.baseline.baseline_zone != s.scenario_zone,
+            habitation_name=s.baseline.name,
+            habitation_code=s.baseline.habitation_code,
+            state_code=s.baseline.state_code,
+            district_code=s.baseline.district_code,
+        )
+        for s in result.rows
+    ]
+    delta_rows = [
+        HabitationDeltaRow(
+            habitation_id=s.habitation_id,
+            habitation_name=s.baseline.name,
+            habitation_code=s.baseline.habitation_code,
+            state_code=s.baseline.state_code,
+            district_code=s.baseline.district_code,
+            pre_risk_score=round(s.baseline.baseline_risk, 4),
+            post_risk_score=round(s.scenario_risk, 4),
+            risk_delta=round(s.scenario_risk - s.baseline.baseline_risk, 4),
+            delta_category=_delta_category(
+                s.scenario_risk - s.baseline.baseline_risk
+            ),
         )
         for s in result.rows
     ]
@@ -147,8 +191,18 @@ def _run_simulation(
         side_by_side=side_by_side,
         delta=delta,
         rows=rows_out,
+        habitation_deltas=delta_rows,
         baseline_untouched=True,
     )
+
+
+def _delta_category(delta: float) -> str:
+    """Classify an itemized risk delta for the per-habitation row-set."""
+    if delta > 0.0:
+        return "Degraded"
+    if delta < 0.0:
+        return "Improved"
+    return "Unchanged"
 
 
 @router.post(

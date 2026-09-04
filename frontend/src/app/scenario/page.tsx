@@ -10,9 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
-import { simulateScenario } from "@/lib/api";
+import { simulateScenario, getStates, getDistricts } from "@/lib/api";
 import { demoOverview } from "@/lib/demo";
-import type { ScenarioSimulation, ScenarioTriggerPayload } from "@/lib/types";
+import type {
+  DistrictMeta,
+  ScenarioSimulation,
+  ScenarioTriggerPayload,
+  StateMeta,
+  HabitationDeltaRow,
+} from "@/lib/types";
 import { HAZARD_META } from "@/lib/constants";
 
 const HAZ_KEYS = Object.keys(HAZARD_META) as Array<keyof typeof HAZARD_META>;
@@ -20,21 +26,42 @@ const HAZ_KEYS = Object.keys(HAZARD_META) as Array<keyof typeof HAZARD_META>;
 export default function ScenarioPage() {
   const [pct, setPct] = React.useState(15);
   const [hazard, setHazard] = React.useState("cloudburst");
-  const [region, setRegion] = React.useState("CHAMOLI"); // district scope
+  // cascading geography: State -> District (nationwide, backend-driven)
+  const [stateScope, setStateScope] = React.useState<string>("UK");
+  const [districtScope, setDistrictScope] = React.useState<string>("CHAMOLI");
+  const [states, setStates] = React.useState<StateMeta[]>([]);
+  const [districts, setDistricts] = React.useState<DistrictMeta[]>([]);
   const [result, setResult] = React.useState<ScenarioSimulation | null>(null);
   const [running, setRunning] = React.useState(false);
 
   const baseline = demoOverview();
 
+  React.useEffect(() => {
+    getStates().then((d) => setStates(d.payload));
+  }, []);
+
+  React.useEffect(() => {
+    setDistricts([]);
+    if (stateScope === "ALL") return;
+    getDistricts(stateScope).then((d) => {
+      setDistricts(d.payload);
+      if (!d.payload.some((x) => x.district_code === districtScope)) {
+        setDistrictScope(d.payload[0]?.district_code ?? "");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateScope]);
+
   async function run() {
+    const scopeAll = stateScope === "ALL";
     const triggers: ScenarioTriggerPayload[] = [
       {
         kind: "rainfall_pct",
         factor: 1 + pct / 100,
         hazard_types: [hazard as ScenarioTriggerPayload["hazard_types"][number]],
-        district: region !== "ALL" ? region : null,
-        state: region === "ALL" ? null : "UK",
-        scope_all: region === "ALL",
+        district: !scopeAll && districtScope ? districtScope : null,
+        state: !scopeAll ? stateScope : null,
+        scope_all: scopeAll,
       },
     ];
     setRunning(true);
@@ -105,20 +132,37 @@ export default function ScenarioPage() {
 
               <div className="space-y-2">
                 <Label>Region scope</Label>
-                <Select
-                  value={region}
-                  onValueChange={setRegion}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All pilots (global)</SelectItem>
-                    <SelectItem value="CHAMOLI">Uttarakhand · Chamoli</SelectItem>
-                    <SelectItem value="PITHORAGARH">Uttarakhand · Pithoragarh</SelectItem>
-                    <SelectItem value="DHEMAJI">Assam · Dhemaji</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={stateScope} onValueChange={setStateScope}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="State" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All states</SelectItem>
+                      {states.map((s) => (
+                        <SelectItem key={s.state_code} value={s.state_code}>
+                          {s.state_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={districtScope}
+                    onValueChange={setDistrictScope}
+                    disabled={stateScope === "ALL"}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="District" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {districts.map((d) => (
+                        <SelectItem key={d.district_code} value={d.district_code}>
+                          {d.district_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <Button className="w-full" onClick={run} disabled={running}>
@@ -139,7 +183,7 @@ export default function ScenarioPage() {
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground">
               Trigger = +{pct}% {HAZARD_META[hazard as keyof typeof HAZARD_META]?.label ?? hazard} at scope{" "}
-              {region}. Baseline remains {baseline.totals.red_zone_count} red /{" "}
+              {stateScope === "ALL" ? "all states" : `${stateScope} · ${districtScope || "-"}`}. Baseline remains {baseline.totals.red_zone_count} red /{" "}
               {baseline.totals.habitation_count} habitations.
             </CardContent>
           </Card>
@@ -191,25 +235,85 @@ export default function ScenarioPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Habitation-wise risk delta</CardTitle>
+                  <CardDescription>
+                    Itemized row-set: pre/post risk scores and zone movement per settlement
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {result.rows.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-muted-foreground">
-                      Backend returned an aggregate delta without a row-set for this run.
-                    </p>
-                  ) : (
-                    <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
-                      {result.rows.map((r) => (
-                        <li key={r.habitation_id} className="flex justify-between rounded border border-border px-3 py-1">
-                          <span>#{r.habitation_id}</span>
-                          <span>
-                            {r.baseline_zone} → <b>{r.scenario_zone}</b>
-                          </span>
-                          <span className="text-muted-foreground">Δ{r.risk_delta.toFixed(3)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  {(() => {
+                    const deltaRows = normalizeDeltaRows(result);
+                    if (deltaRows.length === 0) {
+                      return (
+                        <p className="py-6 text-center text-sm text-muted-foreground">
+                          No row-level data was produced for this run (the backend returned
+                          neither habitation_deltas nor rows). Verify the simulator workspace.
+                        </p>
+                      );
+                    }
+                    const degraded = deltaRows.filter((r) => r.delta_category === "Degraded").length;
+                    const improved = deltaRows.filter((r) => r.delta_category === "Improved").length;
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 pb-1">
+                          <Badge variant="outline">{deltaRows.length} rows</Badge>
+                          <Badge className="bg-red-500/15 text-red-300">{degraded} degraded</Badge>
+                          <Badge className="bg-emerald-500/15 text-emerald-300">{improved} improved</Badge>
+                        </div>
+                        <div className="max-h-80 overflow-y-auto rounded-md border">
+                          <table className="w-full text-left text-sm">
+                            <thead className="sticky top-0 z-10 bg-muted/95 text-xs uppercase text-muted-foreground backdrop-blur">
+                              <tr>
+                                <th className="px-3 py-2">Habitation</th>
+                                <th className="px-3 py-2">District</th>
+                                <th className="px-2 py-2 text-right">Pre</th>
+                                <th className="px-2 py-2 text-right">Post</th>
+                                <th className="px-2 py-2 text-right">Δ risk</th>
+                                <th className="px-3 py-2">Category</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {deltaRows.map((r) => (
+                                <tr key={r.habitation_id} className="hover:bg-muted/40">
+                                  <td className="px-3 py-2">
+                                    <span className="font-medium">{r.habitation_name || `#${r.habitation_id}`}</span>
+                                    <span className="ml-2 text-xs text-muted-foreground">{r.habitation_code}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">{r.district_code || "—"}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{r.pre_risk_score.toFixed(3)}</td>
+                                  <td className="px-2 py-2 text-right tabular-nums">{r.post_risk_score.toFixed(3)}</td>
+                                  <td
+                                    className={`px-2 py-2 text-right tabular-nums ${
+                                      r.risk_delta > 0
+                                        ? "text-amber-300"
+                                        : r.risk_delta < 0
+                                          ? "text-emerald-300"
+                                          : ""
+                                    }`}
+                                  >
+                                    {r.risk_delta > 0 ? "+" : ""}
+                                    {r.risk_delta.toFixed(3)}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs ${
+                                        r.delta_category === "Degraded"
+                                          ? "border-red-500/40 bg-red-500/10 text-red-300"
+                                          : r.delta_category === "Improved"
+                                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                                            : "border-border text-muted-foreground"
+                                      }`}
+                                    >
+                                      {r.delta_category}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </>
@@ -222,6 +326,35 @@ export default function ScenarioPage() {
 
 function bl(r: ScenarioSimulation, key: string): number {
   return Number(r.side_by_side[key] ?? 0);
+}
+
+/**
+ * Normalize the simulator response into itemized delta rows.
+ *
+ * Prefers the explicit `habitation_deltas` row-set; transparently derives an
+ * equivalent set from the legacy `rows` contract (adding names/categories) so
+ * older payloads and demo fallbacks still render the table. Returns [] only
+ * when the run genuinely produced no row-level data.
+ */
+function normalizeDeltaRows(result: ScenarioSimulation): HabitationDeltaRow[] {
+  const explicit = result.habitation_deltas ?? [];
+  if (explicit.length > 0) return explicit;
+
+  return (result.rows ?? []).map((r) => {
+    const delta = r.risk_delta ?? 0;
+    return {
+      habitation_id: r.habitation_id,
+      habitation_name: r.habitation_name ?? "",
+      habitation_code: r.habitation_code ?? "",
+      state_code: r.state_code ?? "",
+      district_code: r.district_code ?? "",
+      pre_risk_score: r.baseline_risk,
+      post_risk_score: r.scenario_risk,
+      risk_delta: delta,
+      delta_category:
+        delta > 0 ? "Degraded" : delta < 0 ? "Improved" : "Unchanged",
+    };
+  });
 }
 
 function EmptyComparison() {

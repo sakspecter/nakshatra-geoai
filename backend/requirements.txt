@@ -11,6 +11,7 @@ numpy==1.26.4
 scikit-learn==1.4.2
 pandas==2.2.1
 geopandas==0.14.3
+pyogrio==0.8.0
 shapely==2.0.3
 pyproj==3.6.1
 

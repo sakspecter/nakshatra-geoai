@@ -49,6 +49,7 @@ class HabitationBaseline:
     population: int
     baseline_risk: float
     baseline_zone: ZoneBand
+    name: str = ""                               # human-readable settlement name
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,10 @@ class SimulatedHabitation:
     def to_delta_dict(self) -> dict:
         return {
             "habitation_id": self.habitation_id,
+            "habitation_name": self.baseline.name,
+            "habitation_code": self.baseline.habitation_code,
+            "state_code": self.baseline.state_code,
+            "district_code": self.baseline.district_code,
             "baseline_risk": round(self.baseline.baseline_risk, 4),
             "scenario_risk": round(self.scenario_risk, 4),
             "risk_delta": round(self.scenario_risk - self.baseline.baseline_risk, 4),

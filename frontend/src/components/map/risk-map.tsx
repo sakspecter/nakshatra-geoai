@@ -31,11 +31,14 @@ export function RiskMap({
   habitations,
   destinations = null,
   layerVis = DEFAULT_VIS,
+  fitBounds = null,
   onSelectFeatures,
 }: {
   habitations: FeatureCollection;
   destinations?: FeatureCollection | null;
   layerVis?: LayerVis;
+  /** [[west, south], [east, north]] - animates the camera when it changes. */
+  fitBounds?: [[number, number], [number, number]] | null;
   onSelectFeatures: (p: Record<string, unknown> | null) => void;
 }) {
   const container = React.useRef<HTMLDivElement | null>(null);
@@ -43,16 +46,33 @@ export function RiskMap({
   const latestRef = React.useRef<{
     vis: LayerVis;
     onSelect: (p: Record<string, unknown> | null) => void;
-  }>({ vis: layerVis, onSelect: onSelectFeatures });
+    habitations: FeatureCollection;
+    destinations: FeatureCollection | null;
+  }>({
+    vis: layerVis,
+    onSelect: onSelectFeatures,
+    habitations,
+    destinations,
+  });
 
   React.useEffect(() => {
-    latestRef.current = { vis: layerVis, onSelect: onSelectFeatures };
-  }, [layerVis, onSelectFeatures]);
+    latestRef.current = {
+      vis: layerVis,
+      onSelect: onSelectFeatures,
+      habitations,
+      destinations,
+    };
+  }, [layerVis, onSelectFeatures, habitations, destinations]);
 
   // one-time map construction + data source & layers
   React.useEffect(() => {
     if (!container.current) return;
-    latestRef.current = { vis: layerVis, onSelect: onSelectFeatures };
+    latestRef.current = {
+      vis: layerVis,
+      onSelect: onSelectFeatures,
+      habitations,
+      destinations,
+    };
     const map = new maplibregl.Map({
       container: container.current!,
       center: [89.5, 27.4],
@@ -77,7 +97,7 @@ export function RiskMap({
     map.addControl(new maplibregl.NavigationControl(), "top-right");
 
     map.on("load", () => {
-      ensureSources(map, habitations, destinations);
+      ensureSources(map, latestRef.current.habitations, latestRef.current.destinations);
       applyLayerToggles(map, latestRef.current.vis);
       bindClick(map, () => latestRef.current.onSelect);
     });
@@ -94,6 +114,21 @@ export function RiskMap({
     const map = mapRef.current;
     applyLayerToggles(map!, layerVis);
   }, [layerVis]);
+
+  // push refreshed GeoJSON (e.g. a newly selected district) into the source
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const src = map.getSource("habs") as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(habitations);
+  }, [habitations]);
+
+  // district focus animation: fit the selected district's bounding box
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !fitBounds) return;
+    map.fitBounds(fitBounds, { padding: 48, maxZoom: 10, duration: 1400 });
+  }, [fitBounds]);
 
   return <div ref={container} className="h-full w-full rounded-lg" />;
 }

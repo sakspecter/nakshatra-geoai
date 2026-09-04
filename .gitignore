@@ -15,3 +15,7 @@ __pycache__/
 # Environment Files
 .env
 .env.local
+
+# TypeScript build metadata
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
